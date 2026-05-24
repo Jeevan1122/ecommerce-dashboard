@@ -1,0 +1,5 @@
+*.json
+__pycache__/
+*.pyc
+.DS_Store
+dashboard_key.json
