@@ -29,7 +29,7 @@ jobs:
           GCP_KEY: ${{ secrets.GCP_KEY }}
         run: |
           echo $GCP_KEY | base64 --decode > /tmp/gcp_key.json
-          echo "✅ Credentials decoded!"
+          echo "Credentials ready!"
 
       - name: Generate today orders
         env:
