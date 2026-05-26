@@ -1,0 +1,40 @@
+name: Daily Pipeline Monitor
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  monitor_pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install google-cloud-bigquery
+          pip install python-dotenv
+          pip install requests
+          pip install pandas
+          pip install db-dtypes
+          pip install pyarrow
+
+      - name: Set up GCP credentials
+        env:
+          GCP_KEY: ${{ secrets.GCP_KEY }}
+        run: |
+          echo '${{ secrets.GCP_KEY }}' > /tmp/gcp_key.json
+          echo "Credentials ready!"
+
+      - name: Run AI Monitor
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp_key.json
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GCP_PROJECT_ID: ecommerce-dashboard-497321
+        run: python monitor/monitor.py
