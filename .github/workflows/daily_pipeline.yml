@@ -1,0 +1,41 @@
+name: Daily Ecommerce Pipeline
+
+on:
+  schedule:
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+
+jobs:
+  run_pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install google-cloud-bigquery
+          pip install pandas
+          pip install faker
+          pip install db-dtypes
+          pip install pyarrow
+
+      - name: Generate today orders
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp_key.json
+          GCP_KEY: ${{ secrets.GCP_KEY }}
+        run: |
+          echo $GCP_KEY > /tmp/gcp_key.json
+          python scripts/generate_today.py
+
+      - name: Refresh BigQuery reports
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp_key.json
+          GCP_KEY: ${{ secrets.GCP_KEY }}
+        run: |
+          echo $GCP_KEY > /tmp/gcp_key.json
+          python scripts/refresh_reports.py
