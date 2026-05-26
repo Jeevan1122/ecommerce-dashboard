@@ -18,18 +18,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install google-cloud-bigquery
-          pip install pandas
-          pip install faker
-          pip install db-dtypes
-          pip install pyarrow
+          pip install google-cloud-bigquery pandas faker db-dtypes pyarrow
 
       - name: Set up GCP credentials
         env:
           GCP_KEY: ${{ secrets.GCP_KEY }}
         run: |
-          echo $GCP_KEY | base64 --decode > /tmp/gcp_key.json
-          echo "Credentials ready!"
+          echo '${{ secrets.GCP_KEY }}' > /tmp/gcp_key.json
+          echo "Credentials written!"
 
       - name: Generate today orders
         env:
