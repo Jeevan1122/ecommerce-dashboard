@@ -1,4 +1,4 @@
-name: Daily Pipeline Monitor
+name: Daily Pipeline Monitor + Auto-Fix
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  monitor_pipeline:
+  ai_agent:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -22,6 +22,7 @@ jobs:
           pip install python-dotenv
           pip install requests
           pip install pandas
+          pip install faker
           pip install db-dtypes
           pip install pyarrow
 
@@ -30,11 +31,19 @@ jobs:
           GCP_KEY: ${{ secrets.GCP_KEY }}
         run: |
           echo '${{ secrets.GCP_KEY }}' > /tmp/gcp_key.json
-          echo "Credentials ready!"
 
-      - name: Run AI Monitor
+      - name: Run AI Auto-Fix Agent
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp_key.json
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GCP_PROJECT_ID: ecommerce-dashboard-497321
-        run: python monitor/monitor.py
+        run: |
+          mkdir -p monitor/reports
+          python monitor/agent.py
+
+      - name: Upload Agent Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-report-${{ github.run_number }}
+          path: monitor/reports/
+          retention-days: 30

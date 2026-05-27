@@ -1,0 +1,46 @@
+
+============================================================
+🤖 AI AUTO-FIX AGENT REPORT
+Generated  : 2026-05-26 20:28:12
+Project    : ecommerce-dashboard-497321
+Action     : DO_NOTHING
+Severity   : WARNING
+============================================================
+
+Error: 'candidates'
+
+============================================================
+TECHNICAL DETAILS:
+============================================================
+Decision: {
+  "action": "do_nothing",
+  "reason": "Could not parse AI response",
+  "severity": "warning",
+  "details": "Error: 'candidates'"
+}
+Metrics : {
+  "check_date": "2026-05-26",
+  "raw_orders": {
+    "total_rows": 5697,
+    "latest_date": "2026-05-26",
+    "today_orders": 151,
+    "yesterday_orders": 231,
+    "total_revenue": 5342112.72,
+    "avg_order_value": 937.71
+  },
+  "daily_revenue": {
+    "total_rows": 875,
+    "latest_date": "2026-05-26",
+    "today_exists": 1,
+    "total_revenue": 5342112.72
+  },
+  "product_performance": {
+    "total_products": 15,
+    "latest_date": "2026-05-26"
+  },
+  "channel_performance": {
+    "total_channels": 5,
+    "total_revenue": 5342112.72
+  }
+}
+============================================================
