@@ -14,20 +14,18 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PROJECT_ID     = os.getenv("GCP_PROJECT_ID")
 bq_client      = bigquery.Client(project=PROJECT_ID)
-
-REPORTS_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "reports"
+REPORTS_DIR    = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "reports"
 )
 
 def ask_gemini(prompt):
-    url     = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    url      = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    payload  = {"contents": [{"parts": [{"text": prompt}]}]}
     response = requests.post(url, json=payload)
     data     = response.json()
     try:
         return data["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception as e:
+    except Exception:
         return None
 
 def run_query(sql):
@@ -37,7 +35,7 @@ def run_query(sql):
     except Exception as e:
         return [{"error": str(e)}]
 
-def collect_ecommerce_metrics():
+def collect_metrics():
     print("  → Collecting ecommerce metrics...")
     today     = date.today()
     yesterday = today - timedelta(days=1)
@@ -65,23 +63,14 @@ def collect_ecommerce_metrics():
     """)
 
     product_perf = run_query(f"""
-        SELECT
-            COUNT(*)         AS total_products,
-            MAX(report_date) AS latest_date
+        SELECT COUNT(*) AS total_products,
+               MAX(report_date) AS latest_date
         FROM `{PROJECT_ID}.ecommerce_reports.product_performance`
     """)
 
-    customer_seg = run_query(f"""
-        SELECT
-            COUNT(*)             AS total_segments,
-            SUM(total_customers) AS total_customers
-        FROM `{PROJECT_ID}.ecommerce_reports.customer_segments`
-    """)
-
     channel = run_query(f"""
-        SELECT
-            COUNT(*)                    AS total_channels,
-            ROUND(SUM(total_revenue),2) AS total_revenue
+        SELECT COUNT(*) AS total_channels,
+               ROUND(SUM(total_revenue),2) AS total_revenue
         FROM `{PROJECT_ID}.ecommerce_reports.channel_performance`
     """)
 
@@ -90,47 +79,94 @@ def collect_ecommerce_metrics():
         "raw_orders"         : raw_orders[0] if raw_orders else {},
         "daily_revenue"      : daily_revenue[0] if daily_revenue else {},
         "product_performance": product_perf[0] if product_perf else {},
-        "customer_segments"  : customer_seg[0] if customer_seg else {},
         "channel_performance": channel[0] if channel else {},
     }
+
+def fallback_report(metrics):
+    today         = metrics["check_date"]
+    today_orders  = metrics["raw_orders"].get("today_orders", 0)
+    yest_orders   = metrics["raw_orders"].get("yesterday_orders", 0)
+    total_revenue = metrics["raw_orders"].get("total_revenue", 0)
+    latest_date   = str(metrics["raw_orders"].get("latest_date", ""))
+    today_exists  = metrics["daily_revenue"].get("today_exists", 0)
+    total_products= metrics["product_performance"].get("total_products", 0)
+    total_channels= metrics["channel_performance"].get("total_channels", 0)
+
+    if today_orders == 0:
+        status = "CRITICAL"
+        issue  = f"No orders recorded for today ({today})"
+        rec    = "Run generate_today.py immediately"
+    elif today_orders < 10:
+        status = "WARNING"
+        issue  = f"Only {today_orders} orders today — very low"
+        rec    = "Check generate_today.py ran correctly"
+    elif today_exists == 0:
+        status = "WARNING"
+        issue  = "Daily revenue table not updated today"
+        rec    = "Run refresh_reports.py"
+    else:
+        status = "HEALTHY"
+        issue  = "No issues detected"
+        rec    = "No action needed"
+
+    if yest_orders > 0 and today_orders > 0:
+        change   = ((today_orders - yest_orders) / yest_orders) * 100
+        trend    = f"{'Up' if change >= 0 else 'Down'} {abs(change):.1f}% vs yesterday"
+    else:
+        trend    = "No comparison available"
+
+    return f"""
+1. OVERALL HEALTH STATUS
+   Status  : {status}
+   Summary : {issue}
+
+2. PIPELINE FINDINGS
+   Today orders     : {today_orders} ({trend})
+   Yesterday orders : {yest_orders}
+   Total revenue    : ${total_revenue:,.2f}
+   Products tracked : {total_products}
+   Sales channels   : {total_channels}
+   Data current to  : {latest_date}
+
+3. ISSUES DETECTED
+   {issue if status != "HEALTHY" else "No issues found"}
+
+4. RECOMMENDATIONS
+   {rec}
+
+5. PLAIN ENGLISH SUMMARY
+   The ecommerce pipeline was checked on {today}.
+   Current status is {status} with {today_orders}
+   orders today generating ${total_revenue:,.2f}
+   in total revenue. {rec}.
+"""
 
 def analyze_with_gemini(metrics):
     print("  → Sending to Gemini AI...")
     prompt = f"""
 You are an expert Data Engineer monitoring
 an ecommerce BigQuery pipeline.
-Analyze these metrics and provide health report.
+Analyze these metrics and write a health report.
 
 Today's Date: {date.today()}
 
-ECOMMERCE PIPELINE METRICS:
-{json.dumps(metrics, indent=2, default=str)}
+ECOMMERCE METRICS:
+- Today orders    : {metrics['raw_orders'].get('today_orders', 0)}
+- Yesterday orders: {metrics['raw_orders'].get('yesterday_orders', 0)}
+- Total revenue   : ${metrics['raw_orders'].get('total_revenue', 0):,.2f}
+- Latest date     : {metrics['raw_orders'].get('latest_date', 'unknown')}
+- Today in reports: {'Yes' if metrics['daily_revenue'].get('today_exists', 0) else 'No'}
+- Products        : {metrics['product_performance'].get('total_products', 0)}
+- Channels        : {metrics['channel_performance'].get('total_channels', 0)}
 
-Please provide ONLY these sections:
+Write ONLY these 5 sections.
+No JSON. No raw data. Clean text only:
 
 1. OVERALL HEALTH STATUS
-   - Healthy / Warning / Critical
-   - One line summary
-
 2. PIPELINE FINDINGS
-   - Raw orders status
-   - Revenue status
-   - Today's data status
-   - Any anomalies
-
 3. ISSUES DETECTED
-   - List problems or "No issues found"
-
 4. RECOMMENDATIONS
-   - Specific actions needed
-
 5. PLAIN ENGLISH SUMMARY
-   - Simple 3 sentences for business team
-
-Be specific with numbers.
-Flag if today's orders are missing or low.
-Do NOT show any raw JSON or technical data.
-Write in clean readable format only.
 """
     return ask_gemini(prompt)
 
@@ -144,7 +180,7 @@ def save_report(report):
 
     full_report = f"""
 {'='*60}
-🛒 ECOMMERCE PIPELINE AI MONITOR
+ECOMMERCE PIPELINE AI MONITOR
 Generated : {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 Project   : {PROJECT_ID}
 {'='*60}
@@ -164,23 +200,29 @@ END OF REPORT
 
 def main():
     print("=" * 60)
-    print("🛒 ECOMMERCE PIPELINE AI MONITOR")
-    print(f"   Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("ECOMMERCE PIPELINE AI MONITOR")
+    print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
     print()
 
-    print("📊 Step 1: Collecting ecommerce metrics...")
-    metrics = collect_ecommerce_metrics()
-    print("  ✅ Metrics collected!")
+    print("Step 1: Collecting metrics...")
+    metrics = collect_metrics()
+    print("  ✅ Done!")
     print()
 
-    print("🧠 Step 2: Analyzing with Gemini AI...")
+    print("Step 2: Analyzing with Gemini AI...")
     ai_report = analyze_with_gemini(metrics)
-    print("  ✅ Analysis complete!")
-    print()
 
-    print("💾 Step 3: Saving report...")
-    full_report = save_report(ai_report)
+    if ai_report:
+        print("  ✅ Gemini AI report ready!")
+        report = ai_report
+    else:
+        print("  ⚠️ Gemini unavailable — using rule-based report")
+        report = fallback_report(metrics)
+
+    print()
+    print("Step 3: Saving report...")
+    full_report = save_report(report)
 
     print()
     print(full_report)
@@ -188,47 +230,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-def get_fallback_report(metrics):
-    today_orders  = metrics["raw_orders"].get("today_orders", 0)
-    total_revenue = metrics["raw_orders"].get("total_revenue", 0)
-    latest_date   = metrics["raw_orders"].get("latest_date", "unknown")
-    today_exists  = metrics["daily_revenue"].get("today_exists", 0)
-    today         = metrics["check_date"]
-
-    if today_orders == 0:
-        status = "🔴 CRITICAL"
-        issue  = f"No orders recorded for {today}!"
-        rec    = "Run generate_today.py immediately"
-    elif today_exists == 0:
-        status = "🟡 WARNING"
-        issue  = "Report tables not updated today"
-        rec    = "Run refresh_reports.py"
-    else:
-        status = "🟢 HEALTHY"
-        issue  = "No issues found"
-        rec    = "No action needed"
-
-    return f"""
-1. OVERALL HEALTH STATUS
-   Status  : {status}
-   Summary : {issue}
-
-2. PIPELINE FINDINGS
-   Today orders  : {today_orders}
-   Latest date   : {latest_date}
-   Total revenue : ${total_revenue:,.2f}
-   Today exists  : {'Yes' if today_exists else 'No'}
-
-3. ISSUES DETECTED
-   {issue}
-
-4. RECOMMENDATIONS
-   {rec}
-
-5. PLAIN ENGLISH SUMMARY
-   Pipeline checked on {today}.
-   Status is {status}.
-   {rec}.
-"""
