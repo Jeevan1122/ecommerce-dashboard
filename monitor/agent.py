@@ -330,7 +330,7 @@ Severity   : {decision.get('severity','unknown').upper()}
 {report}
 
 {'='*60}
-RAW METRICS:
+REPORT COMPLETE
 {'='*60}
 {json.dumps(metrics, indent=2, default=str)}
 {'='*60}

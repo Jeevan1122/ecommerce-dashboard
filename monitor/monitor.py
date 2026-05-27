@@ -1,5 +1,6 @@
 """
 BigQuery AI Monitor - Ecommerce Only
+Clean report - no raw metrics shown
 """
 import os
 import json
@@ -14,15 +15,20 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PROJECT_ID     = os.getenv("GCP_PROJECT_ID")
 bq_client      = bigquery.Client(project=PROJECT_ID)
 
+REPORTS_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "reports"
+)
+
 def ask_gemini(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url     = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     response = requests.post(url, json=payload)
     data     = response.json()
     try:
         return data["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
-        return f"Gemini Error: {str(e)}\nResponse: {data}"
+        return None
 
 def run_query(sql):
     try:
@@ -91,15 +97,16 @@ def collect_ecommerce_metrics():
 def analyze_with_gemini(metrics):
     print("  → Sending to Gemini AI...")
     prompt = f"""
-You are an expert Data Engineer monitoring an ecommerce BigQuery pipeline.
-Analyze these metrics and provide a health report.
+You are an expert Data Engineer monitoring
+an ecommerce BigQuery pipeline.
+Analyze these metrics and provide health report.
 
 Today's Date: {date.today()}
 
 ECOMMERCE PIPELINE METRICS:
 {json.dumps(metrics, indent=2, default=str)}
 
-Please provide:
+Please provide ONLY these sections:
 
 1. OVERALL HEALTH STATUS
    - Healthy / Warning / Critical
@@ -121,14 +128,19 @@ Please provide:
    - Simple 3 sentences for business team
 
 Be specific with numbers.
-Flag if today's orders seem low or missing.
+Flag if today's orders are missing or low.
+Do NOT show any raw JSON or technical data.
+Write in clean readable format only.
 """
     return ask_gemini(prompt)
 
-def save_report(report, metrics):
+def save_report(report):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename  = f"reports/ecommerce_health_{timestamp}.txt"
-    os.makedirs("reports", exist_ok=True)
+    filename  = os.path.join(
+        REPORTS_DIR,
+        f"ecommerce_health_{timestamp}.txt"
+    )
+    os.makedirs(REPORTS_DIR, exist_ok=True)
 
     full_report = f"""
 {'='*60}
@@ -140,9 +152,7 @@ Project   : {PROJECT_ID}
 {report}
 
 {'='*60}
-RAW METRICS:
-{'='*60}
-{json.dumps(metrics, indent=2, default=str)}
+END OF REPORT
 {'='*60}
 """
 
@@ -170,7 +180,7 @@ def main():
     print()
 
     print("💾 Step 3: Saving report...")
-    full_report = save_report(ai_report, metrics)
+    full_report = save_report(ai_report)
 
     print()
     print(full_report)
@@ -178,3 +188,47 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def get_fallback_report(metrics):
+    today_orders  = metrics["raw_orders"].get("today_orders", 0)
+    total_revenue = metrics["raw_orders"].get("total_revenue", 0)
+    latest_date   = metrics["raw_orders"].get("latest_date", "unknown")
+    today_exists  = metrics["daily_revenue"].get("today_exists", 0)
+    today         = metrics["check_date"]
+
+    if today_orders == 0:
+        status = "🔴 CRITICAL"
+        issue  = f"No orders recorded for {today}!"
+        rec    = "Run generate_today.py immediately"
+    elif today_exists == 0:
+        status = "🟡 WARNING"
+        issue  = "Report tables not updated today"
+        rec    = "Run refresh_reports.py"
+    else:
+        status = "🟢 HEALTHY"
+        issue  = "No issues found"
+        rec    = "No action needed"
+
+    return f"""
+1. OVERALL HEALTH STATUS
+   Status  : {status}
+   Summary : {issue}
+
+2. PIPELINE FINDINGS
+   Today orders  : {today_orders}
+   Latest date   : {latest_date}
+   Total revenue : ${total_revenue:,.2f}
+   Today exists  : {'Yes' if today_exists else 'No'}
+
+3. ISSUES DETECTED
+   {issue}
+
+4. RECOMMENDATIONS
+   {rec}
+
+5. PLAIN ENGLISH SUMMARY
+   Pipeline checked on {today}.
+   Status is {status}.
+   {rec}.
+"""
